@@ -1,63 +1,125 @@
 const express = require('express');
-const session = require('express-session');
+//const session = require('express-session');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
-
+const cors = require('cors')
+const fs = require('fs');
+const {exec} = require('child_process');
+const genPath = 'city_generation'
 const jsonParser = bodyParser.json()
-const hostname = 'localhost';
+
+const hostname = '10.244.204.9';
 const port = 8000;
 const app = express();
-
 let last_vertex_id = -1;
+
 let last_edge_id = -1;
 let last_text_id = -1;
 let last_object_id = -1;
+let last_quarter_id = -1;
 let last_user_id = -1;
 
-app.use(cookieParser())
+const mapData = {
+    id: 0,
+    vertices: new Map(),
+    edges: new Map(),
+    texts: new Map(),
+    objects: new Map(),
+    quarters: new Map()
+}
 
-app.use(session({
+/*const sessionConfig = {
     secret: 'amogus',
     resave: false,
-    saveUninitialized: true,
-    cookie: {secure: false}
-}))
+    saveUninitialized: false
+}*/
+
+app.use(cookieParser())
+app.use(cors())
+//app.use(session(sessionConfig))
 
 const maps = new Map()
 
+function generate_quarter(quarter) {
+    fs.writeFile(`./${genPath}/quarter.json`, JSON.stringify(quarter), function (err) {
+        if (err) {
+            console.log(err);
+        }
+    })
+    exec(`java -jar ./${genPath}/quarter_generator.jar quarter ./${genPath}/quarter.json ./${genPath}/`, (error, stdout, stderr) => {
+        console.log(stdout);
+        console.log(stderr);
+        if (error != null) {
+            console.log(`exec error: ${error}`);
+        }
+    })
+
+    let obj
+    fs.readFile(`./${genPath}/buildings.json`, 'utf8', (err, data) => {
+        obj = JSON.parse(data);
+    })
+    return JSON.parse(obj)
+}
+
+function generate_city(cityConfig) {
+    fs.writeFile(`./${genPath}/city_config.json`, JSON.stringify(cityConfig), function (err) {
+        if (err) {
+            console.log(err);
+        }
+    })
+
+    exec(`java -jar ./${genPath}/quarter_generator.jar city ./${genPath}/city_config.json ./${genPath}/`, (error, stdout, stderr) => {
+        console.log(stdout);
+        console.log(stderr);
+        if (error != null) {
+            console.log(`exec error: ${error}`);
+        }
+    })
+
+    let obj
+    fs.readFile(`./${genPath}/buildings.json`, 'utf8', (err, data) => {
+        obj = JSON.parse(data);
+    })
+    return JSON.parse(obj)
+}
+
 app.post('/login', jsonParser, (req, res) => {
+    console.log(`User logging in...`)
     let map_id = req.body.map_id
 
     if (maps.has(map_id)) {
         req.session.map_id = map_id
-    }
-    else {
+    } else {
         maps.set(map_id, {
             id: map_id,
             vertices: new Map(),
             edges: new Map(),
             texts: new Map(),
             objects: new Map(),
-            quarters: []
+            quarters: new Map()
         })
         req.session.map_id = map_id
     }
 
-    if (req.session.user_id) {
-        res.send(`Already logged in as user ${req.session.user_id}`)
-    } else {
-        req.session.user_id = ++last_user_id
-        res.send(`Welcome, user ${req.session.user_id}`)
+
+    let response = {
+        response: true
     }
+    if (!req.session.user_id && req.session.user_id !== 0) {
+        req.session.user_id = ++last_user_id
+    }
+    res.json(response);
+    console.log(`User ${req.session.user_id} logged in`)
+    console.log(`Session: ${req.session.id}`)
 })
 
 app.get('/get_map', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let vertices = Array.from(mapData.vertices.values())
     let texts = Array.from(mapData.texts.values())
     let edges = Array.from(mapData.edges.values())
     let objects = Array.from(mapData.objects.values())
-    let quarters = mapData.quarters
+    let quarters = Array.from(mapData.quarters.values())
 
     let response = {
         response: true,
@@ -68,11 +130,11 @@ app.get('/get_map', jsonParser, (req, res) => {
         quarters: quarters
     }
     res.json(response);
-    console.log(response)
+    //console.log(response)
 })
 
 app.post('/vertices/add', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     console.log(req.body)
     let x = req.body.x
     let y = req.body.y
@@ -87,14 +149,14 @@ app.post('/vertices/add', jsonParser, (req, res) => {
     if (mapData.vertices.has(id)) {
         response.response = false
     } else {
-        mapData.vertices.set(id, {id: id, x: x, y: y, selected: -1})
+        mapData.vertices.set(id, {id: id, x: x, y: y, selected: -1, related_quarter_ids: []})
     }
     res.json(response)
     console.log(response)
 })
 
 app.put('/vertices/select', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.body.user_id
 
@@ -118,7 +180,7 @@ app.put('/vertices/select', jsonParser, (req, res) => {
 })
 
 app.put('/vertices/delete', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
 
     let response = {
@@ -137,7 +199,7 @@ app.put('/vertices/delete', jsonParser, (req, res) => {
 })
 
 app.put('/vertices/move', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.body.user_id
     let x = req.body.x
@@ -156,6 +218,18 @@ app.put('/vertices/move', jsonParser, (req, res) => {
             vertex.x = x
             vertex.y = y
             vertex.selected = -1
+            let edgesArr = Array.from(mapData.edges.values())
+            for (let i = 0; i < edgesArr.length; i++) {
+                if (edgesArr[i].id1 === id) {
+                    edgesArr[i].start[0] = x
+                    edgesArr[i].start[1] = y
+                }
+                if (edgesArr[i].id2 === id) {
+                    edgesArr[i].end[0] = x
+                    edgesArr[i].end[1] = y
+                }
+            }
+
         } else {
             response.response = false
         }
@@ -163,34 +237,93 @@ app.put('/vertices/move', jsonParser, (req, res) => {
         response.response = false
     }
 
+    let updatedQuarters = mapData.vertices.get(id).related_quarter_ids
+    for (let i = 0; i < updatedQuarters.length; i++) {
+        let quarterId = updatedQuarters[i]
+        let quarter = mapData.quarters.get(quarterId)
+        let quarterConfig = {
+            color: quarter.color,
+            borders: quarter.borders
+        }
+
+        mapData.quarters.get(quarterId).buildings = generate_quarter(quarterConfig)
+    }
+
     res.json(response)
     console.log(response)
 })
 
 app.post('/edges/add', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     console.log(req.body)
-    let id1 = req.id1
-    let id2 = req.id2
+    let id1 = req.body.id1
+    let id2 = req.body.id2
     let id = ++last_edge_id
+    let coords1 = req.body.start
+    let coords2 = req.body.end
+
     let response = {
         response: true,
         id: id,
         id1: id1,
-        id2: id2
+        id2: id2,
+        start: coords1,
+        end: coords2
     }
 
     if (mapData.edges.has(id)) {
         response.response = false
     } else {
-        mapData.edges.set(id, {id: id, id1: id1, id2: id2})
+        /*if (!mapData.vertices.has(id1)) {
+            mapData.vertices.set(id1, {id: id1, x: coords1[0], y: coords1[1], selected: -1, related_quarter_ids: []})
+        }
+        if (!mapData.vertices.has(id2)) {
+            mapData.vertices.set(id2, {id: id2, x: coords2[0], y: coords2[1], selected: -1, related_quarter_ids: []})
+        }*/
+        mapData.edges.set(id, {id: id, id1: id1, id2: id2, start: coords1, end: coords2})
+    }
+    res.json(response)
+    console.log(response)
+})
+
+app.post('/edges/add2', jsonParser, (req, res) => {
+    //let mapData = maps.get(req.session.map_id)
+    console.log(req.body)
+    let id1 = req.body.id1
+    let id = ++last_edge_id
+    let coords1 = req.body.start
+    let coords2 = req.body.end
+
+    let idVert = ++last_vertex_id
+
+    mapData.vertices.set(idVert, {id: idVert, x: coords2[0], y: coords2[1], selected: -1, related_quarter_ids: []})
+
+    let response = {
+        response: true,
+        id: id,
+        id1: id1,
+        id2: idVert,
+        start: coords1,
+        end: coords2
+    }
+
+    if (mapData.edges.has(id)) {
+        response.response = false
+    } else {
+        /*if (!mapData.vertices.has(id1)) {
+            mapData.vertices.set(id1, {id: id1, x: coords1[0], y: coords1[1], selected: -1, related_quarter_ids: []})
+        }
+        if (!mapData.vertices.has(id2)) {
+            mapData.vertices.set(id2, {id: id2, x: coords2[0], y: coords2[1], selected: -1, related_quarter_ids: []})
+        }*/
+        mapData.edges.set(id, {id: id, id1: id1, id2: idVert, start: coords1, end: coords2})
     }
     res.json(response)
     console.log(response)
 })
 
 app.put('/edges/delete', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
 
     let response = {
@@ -209,7 +342,7 @@ app.put('/edges/delete', jsonParser, (req, res) => {
 })
 
 app.post('/texts/add', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     console.log(req.body)
     let x = req.body.x
     let y = req.body.y
@@ -242,7 +375,7 @@ app.post('/texts/add', jsonParser, (req, res) => {
 })
 
 app.put('/texts/select', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.session.user_id
 
@@ -266,7 +399,7 @@ app.put('/texts/select', jsonParser, (req, res) => {
 })
 
 app.put('/texts/deselect', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.session.user_id
 
@@ -290,7 +423,7 @@ app.put('/texts/deselect', jsonParser, (req, res) => {
 })
 
 app.put('/texts/delete', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.session.user_id
 
@@ -312,7 +445,7 @@ app.put('/texts/delete', jsonParser, (req, res) => {
 })
 
 app.put('/texts/edit', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.session.user_id
     let new_text = req.body.text
@@ -335,8 +468,9 @@ app.put('/texts/edit', jsonParser, (req, res) => {
     console.log(req.body)
 })
 
+
 app.put('/texts/transform', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.session.user_id
     let x = req.body.x
@@ -372,9 +506,8 @@ app.put('/texts/transform', jsonParser, (req, res) => {
     console.log(req.body)
 })
 
-
 app.post('/objects/add', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     console.log(req.body)
     let color = req.body.color
     let vertices = req.body.vertices
@@ -401,7 +534,7 @@ app.post('/objects/add', jsonParser, (req, res) => {
 })
 
 app.put('/objects/select', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.session.user_id
 
@@ -425,7 +558,7 @@ app.put('/objects/select', jsonParser, (req, res) => {
 })
 
 app.put('/objects/deselect', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.session.user_id
 
@@ -449,7 +582,7 @@ app.put('/objects/deselect', jsonParser, (req, res) => {
 })
 
 app.put('/objects/delete', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.session.user_id
 
@@ -470,8 +603,9 @@ app.put('/objects/delete', jsonParser, (req, res) => {
     console.log(response)
 })
 
+
 app.put('/objects/edit', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
+    //let mapData = maps.get(req.session.map_id)
     let user_id = req.session.user_id
     let color = req.body.color
     let vertices = req.body.vertices
@@ -497,22 +631,54 @@ app.put('/objects/edit', jsonParser, (req, res) => {
     console.log(req.body)
 })
 
-
 app.put('/quarters/generate', jsonParser, (req, res) => {
-    let mapData = maps.get(req.session.map_id)
-    let edges = req.body.edges
-    let type = req.body.type
+    //let mapData = maps.get(req.session.map_id)
+    let quarterReq = req.body.quarter
+    let quarterConfig = {
+        color: quarterReq.color,
+        borders: []
+    }
 
-    let elements = generate_quarter(mapData, edges, type)
+    for (let i = 0; i < quarterReq.borders.length; i++) {
+        let id1 = quarterReq.borders[i].id1;
+        let id2 = quarterReq.borders[i].id2;
+        let border = {
+            start: [
+                mapData.vertices.get(id1).x,
+                mapData.vertices.get(id1).y
+            ],
+            end: [
+                mapData.vertices.get(id2).x,
+                mapData.vertices.get(id2).y
+            ]
+        }
+        quarterConfig.borders.push(border)
+    }
+
+    let buildings = generate_quarter(quarterConfig)
+    let quarter = {
+        id: ++last_quarter_id,
+        color: quarterReq.color,
+        buildings: buildings,
+        borders: quarterReq.borders
+    }
+
+    for (let i = 0; i < quarterReq.borders.length; i++) {
+        let vertID = quarterReq.borders[i].id1
+        mapData.vertices.get(vertID).related_quarter_ids.push(quarter.id)
+    }
 
     let response = {
         response: true,
-        elements: elements
+        quarter: quarter
     }
 
     res.json(response)
+    mapData.quarters.set(quarter.id, quarter)
+    res.json(response)
     console.log(req.body)
 })
+
 
 app.listen(port, hostname, () => {
     console.log(`Server listening on http://${hostname}:${port}`)
