@@ -40,25 +40,35 @@ app.use(cors())
 
 const maps = new Map()
 
-function generate_quarter(quarter) {
+async function generate_quarter(quarter) {
     fs.writeFile(`./${genPath}/quarter.json`, JSON.stringify(quarter), function (err) {
         if (err) {
             console.log(err);
         }
     })
-    exec(`java -jar ./${genPath}/quarter_generator.jar quarter ./${genPath}/quarter.json ./${genPath}/`, (error, stdout, stderr) => {
-        console.log(stdout);
-        console.log(stderr);
-        if (error != null) {
-            console.log(`exec error: ${error}`);
-        }
-    })
 
     let obj
-    fs.readFile(`./${genPath}/buildings.json`, 'utf8', (err, data) => {
-        obj = JSON.parse(data);
+    let execPromise = function () {
+        return new Promise((resolve, reject) => {
+            exec(`java -jar ./${genPath}/quarter_generator.jar quarter ./${genPath}/quarter.json ./${genPath}/`, (error, stdout, stderr) => {
+                console.log(stdout);
+                console.log(stderr);
+                if (error) {
+                    console.log(`exec error: ${error}`);
+                }
+                resolve()
+            })
+        })
+    }
+
+    return new Promise((resolve, reject) => {
+        execPromise().then(() => {
+            fs.readFile(`./${genPath}/buildings.json`, 'utf8', (err, data) => {
+                obj = JSON.parse(data);
+                resolve(obj)
+            })
+        })
     })
-    return JSON.parse(obj)
 }
 
 function generate_city(cityConfig) {
@@ -74,13 +84,15 @@ function generate_city(cityConfig) {
         if (error != null) {
             console.log(`exec error: ${error}`);
         }
+        console.log("generation complete")
     })
 
     let obj
     fs.readFile(`./${genPath}/buildings.json`, 'utf8', (err, data) => {
         obj = JSON.parse(data);
     })
-    return JSON.parse(obj)
+
+    return obj
 }
 
 app.post('/login', jsonParser, (req, res) => {
@@ -237,17 +249,17 @@ app.put('/vertices/move', jsonParser, (req, res) => {
         response.response = false
     }
 
-    let updatedQuarters = mapData.vertices.get(id).related_quarter_ids
-    for (let i = 0; i < updatedQuarters.length; i++) {
-        let quarterId = updatedQuarters[i]
-        let quarter = mapData.quarters.get(quarterId)
-        let quarterConfig = {
-            color: quarter.color,
-            borders: quarter.borders
-        }
-
-        mapData.quarters.get(quarterId).buildings = generate_quarter(quarterConfig)
-    }
+    // let updatedQuarters = mapData.vertices.get(id).related_quarter_ids
+    // for (let i = 0; i < updatedQuarters.length; i++) {
+    //     let quarterId = updatedQuarters[i]
+    //     let quarter = mapData.quarters.get(quarterId)
+    //     let quarterConfig = {
+    //         color: quarter.color,
+    //         borders: quarter.borders
+    //     }
+    //
+    //     mapData.quarters.get(quarterId).buildings = generate_quarter(quarterConfig)
+    // }
 
     res.json(response)
     console.log(response)
@@ -631,8 +643,9 @@ app.put('/objects/edit', jsonParser, (req, res) => {
     console.log(req.body)
 })
 
-app.put('/quarters/generate', jsonParser, (req, res) => {
+app.put('/quarters/generate', jsonParser, async (req, res) => {
     //let mapData = maps.get(req.session.map_id)
+    console.log(req.body)
     let quarterReq = req.body.quarter
     let quarterConfig = {
         color: quarterReq.color,
@@ -640,46 +653,46 @@ app.put('/quarters/generate', jsonParser, (req, res) => {
     }
 
     for (let i = 0; i < quarterReq.borders.length; i++) {
-        let id1 = quarterReq.borders[i].id1;
-        let id2 = quarterReq.borders[i].id2;
+        let start = quarterReq.borders[i].start;
+        let end = quarterReq.borders[i].end;
         let border = {
-            start: [
-                mapData.vertices.get(id1).x,
-                mapData.vertices.get(id1).y
-            ],
-            end: [
-                mapData.vertices.get(id2).x,
-                mapData.vertices.get(id2).y
-            ]
+            start: start,
+            end: end
         }
         quarterConfig.borders.push(border)
     }
 
-    let buildings = generate_quarter(quarterConfig)
-    let quarter = {
-        id: ++last_quarter_id,
-        color: quarterReq.color,
-        buildings: buildings,
-        borders: quarterReq.borders
-    }
+    generate_quarter(quarterConfig).then((buildings) => {
+        let quarter = {
+            id: ++last_quarter_id,
+            color: quarterReq.color,
+            buildings: buildings,
+            borders: quarterReq.borders
+        }
 
-    for (let i = 0; i < quarterReq.borders.length; i++) {
-        let vertID = quarterReq.borders[i].id1
-        mapData.vertices.get(vertID).related_quarter_ids.push(quarter.id)
-    }
+        /*for (let i = 0; i < quarterReq.borders.length; i++) {
+            let vertID = quarterReq.borders[i].id1
+            mapData.vertices.get(vertID).related_quarter_ids.push(quarter.id)
+        }*/
 
-    let response = {
-        response: true,
-        quarter: quarter
-    }
+        let response = {
+            response: true,
+            quarter: quarter
+        }
 
-    res.json(response)
-    mapData.quarters.set(quarter.id, quarter)
-    res.json(response)
-    console.log(req.body)
+        mapData.quarters.set(quarter.id, quarter)
+        res.json(response)
+        console.log(response)
+    })
 })
 
 
 app.listen(port, hostname, () => {
     console.log(`Server listening on http://${hostname}:${port}`)
 })
+
+
+let quarterConfig = {
+    color: "poor",
+    borders: []
+}
