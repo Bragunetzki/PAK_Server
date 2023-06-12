@@ -580,22 +580,44 @@ app.put('/generate', jsonParser, (req, res) => {
                 }
 
                 if (!borderExists) {
-                    let id1 = ++last_vertex_id
-                    let id2 = ++last_vertex_id
-                    mapData.vertices.set(id1, {
-                        id: id1,
-                        x: border.start[0],
-                        y: border.start[1],
-                        selected: -1,
-                        related_quarter_ids: []
-                    })
-                    mapData.vertices.set(id2, {
-                        id: id2,
-                        x: border.end[0],
-                        y: border.end[1],
-                        selected: -1,
-                        related_quarter_ids: []
-                    })
+                    let vert1exists = false
+                    let vert2exists = false
+                    let id1
+                    let id2
+                    let verts = Array.from(mapData.vertices.values())
+                    for (let k = 0; k < verts; k++) {
+                        let vert = verts[k]
+                        if (vert.x === border.start[0] && vert.y === border.start[1]) {
+                            vert1exists = true
+                            id1 = vert.id
+                        }
+                        if (vert.x === border.end[0] && vert.y === border.end[1]) {
+                            vert2exists = true
+                            id2 = vert.id
+                        }
+                        if (vert1exists && vert2exists)
+                            break
+                    }
+                    if (!vert1exists) {
+                        id1 = ++last_vertex_id
+                        mapData.vertices.set(id1, {
+                            id: id1,
+                            x: border.start[0],
+                            y: border.start[1],
+                            selected: -1,
+                            related_quarter_ids: []
+                        })
+                    }
+                    if (!vert2exists) {
+                        id2 = ++last_vertex_id
+                        mapData.vertices.set(id2, {
+                            id: id2,
+                            x: border.end[0],
+                            y: border.end[1],
+                            selected: -1,
+                            related_quarter_ids: []
+                        })
+                    }
                     mapData.edges.set(++last_edge_id, {
                         id: last_edge_id,
                         id1: id1,
