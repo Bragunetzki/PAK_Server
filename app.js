@@ -14,7 +14,6 @@ const app = express();
 let last_vertex_id = -1;
 
 let last_edge_id = -1;
-let last_text_id = -1;
 let last_object_id = -1;
 let last_quarter_id = -1;
 let last_user_id = -1;
@@ -49,7 +48,7 @@ async function generate_quarter(quarter) {
 
     let obj
     let execPromise = function () {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             exec(`java -jar ./${genPath}/quarter_generator.jar quarter ./${genPath}/quarter.json ./${genPath}/`, (error, stdout, stderr) => {
                 console.log(stdout);
                 console.log(stderr);
@@ -63,7 +62,7 @@ async function generate_quarter(quarter) {
         })
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         execPromise().then(() => {
             fs.readFile(`./${genPath}/buildings.json`, 'utf8', (err, data) => {
                 obj = JSON.parse(data);
@@ -81,7 +80,7 @@ async function generate_city(cityConfig) {
     })
 
     let execPromise = function () {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             exec(`java -jar ./${genPath}/quarter_generator.jar city ./${genPath}/city_config.json ./${genPath}/`, (error, stdout, stderr) => {
                 console.log(stdout);
                 console.log(stderr);
@@ -100,7 +99,7 @@ async function generate_city(cityConfig) {
         execPromise().then(() => {
                 fs.readFile(`./${genPath}/buildings.json`, 'utf8', (err, data) => {
                     obj = JSON.parse(data);
-                    resolve()
+                    resolve(obj)
                 })
             }
         )
@@ -341,7 +340,13 @@ app.post('/edges/add2', jsonParser, (req, res) => {
             mapData.vertices.set(id1, {id: id1, x: coords1[0], y: coords1[1], selected: -1, related_quarter_ids: []})
         }
         if (!mapData.vertices.has(idVert)) {
-            mapData.vertices.set(idVert, {id: idVert, x: coords2[0], y: coords2[1], selected: -1, related_quarter_ids: []})
+            mapData.vertices.set(idVert, {
+                id: idVert,
+                x: coords2[0],
+                y: coords2[1],
+                selected: -1,
+                related_quarter_ids: []
+            })
         }
         mapData.edges.set(id, {id: id, id1: id1, id2: idVert, start: coords1, end: coords2})
     }
@@ -549,6 +554,10 @@ app.put('/generate', jsonParser, (req, res) => {
     }
 
     generate_city(cityConfig).then((result) => {
+        mapData.quarters.clear()
+        mapData.vertices.clear()
+        mapData.edges.clear()
+        mapData.objects.clear()
         for (let i = 0; i < result.length; i++) {
             let elem = result[i]
             let quarter = {
@@ -557,17 +566,53 @@ app.put('/generate', jsonParser, (req, res) => {
                 buildings: elem.buildings,
                 borders: elem.borders
             }
-            for (let j = 0; j < elem.borders.length; j++) {
-                let border = elem.borders[j]
-                let id1 = ++last_vertex_id
-                let id2 = ++last_vertex_id
-                mapData.vertices.set(id1, {id: id1, x: border.start[0], y: border.start[1], selected: -1, related_quarter_ids: []})
-                mapData.vertices.set(id2, {id: id2, x: border.end[0], y: border.end[1], selected: -1, related_quarter_ids: []})
-                mapData.edges.set(++last_edge_id, {id: last_edge_id, id1: id1, id2: id2, start: border.start, end: border.end})
-            }
 
+            for (let j = 0; j < elem.borders.length; j++) {
+                let edges = Array.from(mapData.edges.values())
+                let border = elem.borders[j]
+                let borderExists = false
+                for (let k = 0; k < edges.length; k++) {
+                    let edge = edges[k]
+                    if (edge.start[0] === border.start[0] && edge.start[1] === border.start[1] && edge.end[0] === border.end[0] && edge.end[1] === border.end[1]) {
+                        borderExists = true
+                        break
+                    }
+                }
+
+                if (!borderExists) {
+                    let id1 = ++last_vertex_id
+                    let id2 = ++last_vertex_id
+                    mapData.vertices.set(id1, {
+                        id: id1,
+                        x: border.start[0],
+                        y: border.start[1],
+                        selected: -1,
+                        related_quarter_ids: []
+                    })
+                    mapData.vertices.set(id2, {
+                        id: id2,
+                        x: border.end[0],
+                        y: border.end[1],
+                        selected: -1,
+                        related_quarter_ids: []
+                    })
+                    mapData.edges.set(++last_edge_id, {
+                        id: last_edge_id,
+                        id1: id1,
+                        id2: id2,
+                        start: border.start,
+                        end: border.end
+                    })
+                }
+            }
             mapData.quarters.set(quarter.id, quarter)
         }
+        let response = {
+            response: true,
+            result: result
+        }
+        res.json(response)
+        console.log(response)
     })
 })
 
