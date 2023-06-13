@@ -221,7 +221,7 @@ app.put('/vertices/delete', jsonParser, (req, res) => {
     console.log(response)
 })
 
-app.put('/vertices/move', jsonParser, (req, res) => {
+app.put('/vertices/move', jsonParser, async (req, res) => {
     //let mapData = maps.get(req.session.map_id)
     let id = req.body.id
     let user_id = req.body.user_id
@@ -281,7 +281,8 @@ app.put('/vertices/move', jsonParser, (req, res) => {
             borders: coordBorders
         }
 
-        generate_quarter(quarterConfig).then((buildings) => {
+
+        await generate_quarter(quarterConfig).then((buildings) => {
             mapData.quarters.get(quarterId).buildings = buildings
         })
     }
@@ -579,6 +580,7 @@ app.put('/generate', jsonParser, (req, res) => {
                     let edge = edges[k]
                     if (edge.start[0] === border.start[0] && edge.start[1] === border.start[1] && edge.end[0] === border.end[0] && edge.end[1] === border.end[1]) {
                         newBorders.push({ start: edge.id1, end: edge.id2})
+                        mapData.vertices.get(edge.id1).related_quarter_ids.push(quarter.id)
                         borderExists = true
                         break
                     }
@@ -590,7 +592,7 @@ app.put('/generate', jsonParser, (req, res) => {
                     let id1
                     let id2
                     let verts = Array.from(mapData.vertices.values())
-                    for (let k = 0; k < verts; k++) {
+                    for (let k = 0; k < verts.length; k++) {
                         let vert = verts[k]
                         if (vert.x === border.start[0] && vert.y === border.start[1]) {
                             vert1exists = true
@@ -630,6 +632,8 @@ app.put('/generate', jsonParser, (req, res) => {
                         start: border.start,
                         end: border.end
                     })
+                    newBorders.push({ start: id1, end: id2})
+                    mapData.vertices.get(id1).related_quarter_ids.push(quarter.id)
                 }
             }
             quarter.borders = newBorders
