@@ -265,9 +265,20 @@ app.put('/vertices/move', jsonParser, (req, res) => {
         let quarterId = updatedQuarters[i]
         let quarter = mapData.quarters.get(quarterId)
 
+        let coordBorders = []
+        for (let j = 0; j < quarter.borders.length; j++) {
+            let border = quarter.borders[j]
+            let startV = mapData.vertices.get(border.start)
+            let endV = mapData.vertices.get(border.end)
+            coordBorders.push({
+                start: [startV.x, startV.y],
+                end: [endV.x, endV.y]
+            })
+        }
+
         let quarterConfig = {
             color: quarter.color,
-            borders: quarter.borders
+            borders: coordBorders
         }
 
         generate_quarter(quarterConfig).then((buildings) => {
@@ -494,7 +505,7 @@ app.put('/objects/edit', jsonParser, (req, res) => {
 
 app.put('/quarters/generate', jsonParser, async (req, res) => {
     //let mapData = maps.get(req.session.map_id)
-    console.log(req.body)
+    console.log(JSON.stringify(req.body))
     let quarterReq = req.body.quarter
     let quarterConfig = {
         color: quarterReq.color,
@@ -505,8 +516,8 @@ app.put('/quarters/generate', jsonParser, async (req, res) => {
         let start = quarterReq.borders[i].start;
         let end = quarterReq.borders[i].end;
         let border = {
-            start: start,
-            end: end
+            start: [mapData.vertices.get(start).x, mapData.vertices.get(start).y],
+            end: [mapData.vertices.get(end).x, mapData.vertices.get(end).y]
         }
         quarterConfig.borders.push(border)
     }
@@ -520,17 +531,8 @@ app.put('/quarters/generate', jsonParser, async (req, res) => {
         }
 
         for (let i = 0; i < quarterReq.borders.length; i++) {
-            let vertID
             let border = quarterReq.borders[i]
-            let mapArr = Array.from(mapData.vertices.values())
-            for (let j = 0; j < mapData.vertices.size; j++) {
-                let vertex = mapArr[j]
-                if (vertex.x === border.start[0] && vertex.y === border.start[1]) {
-                    vertID = vertex.id
-                    break
-                }
-            }
-            mapData.vertices.get(vertID).related_quarter_ids.push(quarter.id)
+            mapData.vertices.get(border.start).related_quarter_ids.push(quarter.id)
         }
 
         let response = {
@@ -560,6 +562,8 @@ app.put('/generate', jsonParser, (req, res) => {
         mapData.objects.clear()
         for (let i = 0; i < result.length; i++) {
             let elem = result[i]
+            let newBorders = []
+
             let quarter = {
                 id: ++last_quarter_id,
                 color: elem.buildings[0].color,
@@ -574,6 +578,7 @@ app.put('/generate', jsonParser, (req, res) => {
                 for (let k = 0; k < edges.length; k++) {
                     let edge = edges[k]
                     if (edge.start[0] === border.start[0] && edge.start[1] === border.start[1] && edge.end[0] === border.end[0] && edge.end[1] === border.end[1]) {
+                        newBorders.push({ start: edge.id1, end: edge.id2})
                         borderExists = true
                         break
                     }
@@ -627,6 +632,7 @@ app.put('/generate', jsonParser, (req, res) => {
                     })
                 }
             }
+            quarter.borders = newBorders
             mapData.quarters.set(quarter.id, quarter)
         }
         let response = {
